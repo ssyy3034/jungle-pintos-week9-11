@@ -24,8 +24,8 @@
    Do not modify this value. */
 #define THREAD_BASIC 0xd42df210
 
-/* List of processes in THREAD_READY state, that is, processes
-   that are ready to run but not actually running. */
+/* THREAD_READY 상태의 프로세스 목록.
+	즉, 실행할 준비는 되었지만 실제로 실행 중은 아닌 프로세스들이다. */
 static struct list ready_list;
 
 /* Idle thread. */
@@ -117,11 +117,11 @@ thread_init (void) {
 	initial_thread->tid = allocate_tid ();
 }
 
-/* Starts preemptive thread scheduling by enabling interrupts.
-   Also creates the idle thread. */
+/* 인터럽트를 활성화해 선점형 스레드 스케줄링을 시작한다.
+   또한 idle 스레드를 생성한다. */
 void
 thread_start (void) {
-	/* Create the idle thread. */
+	/* idle 쓰레드 생성 */
 	struct semaphore idle_started;
 	sema_init (&idle_started, 0);
 	thread_create ("idle", PRI_MIN, idle, &idle_started);
@@ -129,12 +129,16 @@ thread_start (void) {
 	/* Start preemptive thread scheduling. */
 	intr_enable ();
 
-	/* Wait for the idle thread to initialize idle_thread. */
+	/* idle쓰레드 초기화 완료 대기 */
 	sema_down (&idle_started);
 }
 
-/* Called by the timer interrupt handler at each timer tick.
-   Thus, this function runs in an external interrupt context. */
+/* 이 함수는 매 타이머 틱마다 타이머 인터럽트 핸들러가 호출한다. 
+	따라서 외부 인터럽트 컨텍스트(인터럽트 처리 중)에서 동작한다.
+
+	-> 쓰레드 틱 올리고 TIME_SLICE 초과했는지 검사
+	-> 초과했을 경우 문맥전환 플래그 On
+*/
 void
 thread_tick (void) {
 	struct thread *t = thread_current ();
@@ -150,6 +154,8 @@ thread_tick (void) {
 		kernel_ticks++;
 
 	/* Enforce preemption. */
+	// TIME_SLICE 넘어가면 intr_yield_on_return() 호출해서
+	// 문맥전환 플래그 On
 	if (++thread_ticks >= TIME_SLICE)
 		intr_yield_on_return ();
 }
@@ -284,16 +290,15 @@ thread_exit (void) {
 #ifdef USERPROG
 	process_exit ();
 #endif
-
-	/* Just set our status to dying and schedule another process.
-	   We will be destroyed during the call to schedule_tail(). */
+	/* 우리의 상태를 ‘dying’으로만 설정하고, 다른 프로세스를 스케줄합니다.
+	실제 파괴는 schedule_tail() 호출 동안 이루어집니다. */
 	intr_disable ();
 	do_schedule (THREAD_DYING);
 	NOT_REACHED ();
 }
 
-/* Yields the CPU.  The current thread is not put to sleep and
-   may be scheduled again immediately at the scheduler's whim. */
+/* CPU를 양보합니다. 현재 스레드는 잠재우지(sleep) 않으며,
+스케줄러의 판단에 따라 곧바로 다시 스케줄될 수도 있습니다. */
 void
 thread_yield (void) {
 	struct thread *curr = thread_current ();
@@ -303,6 +308,7 @@ thread_yield (void) {
 
 	old_level = intr_disable ();
 	if (curr != idle_thread)
+		// list의 맨 뒤에 넣음
 		list_push_back (&ready_list, &curr->elem);
 	do_schedule (THREAD_READY);
 	intr_set_level (old_level);
@@ -521,15 +527,15 @@ thread_launch (struct thread *th) {
 			);
 }
 
-/* Schedules a new process. At entry, interrupts must be off.
- * This function modify current thread's status to status and then
- * finds another thread to run and switches to it.
- * It's not safe to call printf() in the schedule(). */
+/* 새로운 프로세스를 스케줄합니다. 진입 시 인터럽트는 꺼져 있어야 합니다.
+ * 이 함수는 현재 스레드의 상태를 status로 바꾼 뒤,
+ * 실행할 다른 스레드를 찾아 그 스레드로 전환합니다.
+ * schedule() 안에서는 printf()를 호출하는 것이 안전하지 않습니다. */
 static void
 do_schedule(int status) {
-	ASSERT (intr_get_level () == INTR_OFF);
-	ASSERT (thread_current()->status == THREAD_RUNNING);
-	while (!list_empty (&destruction_req)) {
+	ASSERT (intr_get_level () == INTR_OFF);		// 인터럽트 비활성 여부 체크
+	ASSERT (thread_current()->status == THREAD_RUNNING);	// 현재 스레드가 실행상태인가
+	while (!list_empty (&destruction_req)) {	// destruction_req : 파괴 대기 스레드ㅁ
 		struct thread *victim =
 			list_entry (list_pop_front (&destruction_req), struct thread, elem);
 		palloc_free_page(victim);
