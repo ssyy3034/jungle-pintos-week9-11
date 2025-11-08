@@ -29,6 +29,10 @@ static bool too_many_loops (unsigned loops);
 static void busy_wait (int64_t loops);
 static void real_time_sleep (int64_t num, int32_t denom);
 
+// 자고있는 쓰레드 목록
+static struct list sleep_list;
+
+
 /* Sets up the 8254 Programmable Interval Timer (PIT) to
    interrupt PIT_FREQ times per second, and registers the
    corresponding interrupt. */
@@ -41,6 +45,9 @@ timer_init (void) {
 	outb (0x43, 0x34);    /* CW: counter 0, LSB then MSB, mode 2, binary. */
 	outb (0x40, count & 0xff);
 	outb (0x40, count >> 8);
+
+	// 슬립 목록 초기화
+	list_init (&sleep_list);
 
 	intr_register_ext (0x20, timer_interrupt, "8254 Timer");
 }
@@ -87,14 +94,66 @@ timer_elapsed (int64_t then) {
 	return timer_ticks () - then;
 }
 
-/* Suspends execution for approximately TICKS timer ticks. */
+static bool
+wakeup_less(const struct list_elem *a,
+			const struct list_elem *b,
+			void *aux){
+
+	struct thread *a_thread = list_entry(a, struct thread, elem);
+	struct thread *b_thread = list_entry(b, struct thread, elem);
+
+	if (a_thread -> wakeup_tick < b_thread ->wakeup_tick){
+		return true;
+	} else {
+		return false;
+	}
+}
+
+/* 대략 TICKS 타이머 틱 동안 실행을 일시 중단(suspend)한다.
+	쓰레드 재우는 함수
+	- 슬립큐에 추가(추가될 때 남은시간 기준으로 sort())
+	- thread_block() 호출해서 스케줄러 선택 안받도록 처리
+	- 슬립큐에서 깨야하는지 여부는 timer_tick() 에서 검사 
+
+	enum intr_level old_level;
+
+	ASSERT (is_thread (t));
+
+	old_level = intr_disable ();
+	ASSERT (t->status == THREAD_BLOCKED);
+	list_push_back (&ready_list, &t->elem);
+	t->status = THREAD_READY;
+	intr_set_level (old_level);
+*/
 void
 timer_sleep (int64_t ticks) {
-	int64_t start = timer_ticks ();
+	if(ticks <= 0) return;
 
-	ASSERT (intr_get_level () == INTR_ON);
-	while (timer_elapsed (start) < ticks)
-		thread_yield ();
+	enum intr_level old_level;
+	
+	
+	ASSERT (intr_get_level () == INTR_ON); // 왜 필요한지 알아보기
+	
+	/*
+	sleep()이 호출 되면?
+	1. current()로 현재 쓰레드 가져욤
+	2. 가져온 쓰레드에 깨어날 시각 설정(start + ticks)
+	3. 슬립큐에 추가
+	4. 슬립 큐 sort()
+	5. thread_block() 호출
+	*/
+	struct thread *t = thread_current ();
+
+	old_level = intr_disable ();
+	// 현재 시각
+	int64_t start = timer_ticks ();
+	t -> wakeup_tick = start + ticks;
+	list_insert_ordered(&sleep_list, &t -> elem, wakeup_less, NULL);
+	thread_block ();
+	intr_set_level (old_level);
+
+	// while (timer_elapsed (start) < ticks)	// 아직 깰시간 아니다
+	// 	thread_yield ();
 }
 
 /* Suspends execution for approximately MS milliseconds. */
@@ -121,10 +180,28 @@ timer_print_stats (void) {
 	printf ("Timer: %"PRId64" ticks\n", timer_ticks ());
 }
 
-/* Timer interrupt handler. */
+/* 
+	intr_handler 에서 호출된다
+	Timer interrupt handler. 
+*/
 static void
 timer_interrupt (struct intr_frame *args UNUSED) {
 	ticks++;
+	// Thread_tick 전에 슬립큐에서 깨울 것 체크
+	int64_t now = timer_ticks ();
+	/*
+		sleep 큐에서 깨울 애들 체크
+		while(슬립큐.헤드.일어날시간 > 현재시간){
+			슬립큐에서 제거
+			쓰레드.unblock()
+		}
+	*/
+	while (!list_empty(&sleep_list) && 
+			list_entry(list_begin(&sleep_list), struct thread, elem) -> wakeup_tick <= now) {
+		struct thread *t = list_entry(list_begin(&sleep_list), struct thread, elem);
+		list_pop_front(&sleep_list);
+		thread_unblock(t);
+	}
 	thread_tick ();
 }
 

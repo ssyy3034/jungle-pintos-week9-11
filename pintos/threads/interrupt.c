@@ -124,38 +124,45 @@ intr_get_level (void) {
 	return flags & FLAG_IF ? INTR_ON : INTR_OFF;
 }
 
-/* Enables or disables interrupts as specified by LEVEL and
-   returns the previous interrupt status. */
+/* LEVEL에 따라 인터럽트를 활성화하거나 비활성화하고,
+   이전 인터럽트 상태를 반환한다. */
 enum intr_level
 intr_set_level (enum intr_level level) {
 	return level == INTR_ON ? intr_enable () : intr_disable ();
 }
 
-/* Enables interrupts and returns the previous interrupt status. */
+/* 인터럽트를 활성화하고, 이전 인터럽트 상태를 반환한다. */
 enum intr_level
 intr_enable (void) {
 	enum intr_level old_level = intr_get_level ();
-	ASSERT (!intr_context ());
+	ASSERT (!intr_context ());	// 인터럽트 컨텍스트가 아니어야 실행가능
 
 	/* Enable interrupts by setting the interrupt flag.
 
 	   See [IA32-v2b] "STI" and [IA32-v3a] 5.8.1 "Masking Maskable
-	   Hardware Interrupts". */
+	   Hardware Interrupts".
+	   		
+	   -> 어셈블리어 단계에서 ELFLAGS의 IF 비트를 1로 설정
+	   -> 저게 인터럽트 On 상태로 만드는것
+	*/
 	asm volatile ("sti");
 
+	// 이전의 인터럽트 On/Off 상태를 리턴한다
 	return old_level;
 }
 
-/* Disables interrupts and returns the previous interrupt status. */
+/* 인터럽트를 비활성화하고, 이전 인터럽트 상태를 반환한다. */
 enum intr_level
 intr_disable (void) {
 	enum intr_level old_level = intr_get_level ();
 
 	/* Disable interrupts by clearing the interrupt flag.
 	   See [IA32-v2b] "CLI" and [IA32-v3a] 5.8.1 "Masking Maskable
-	   Hardware Interrupts". */
+	   Hardware Interrupts". 
+	*/
 	asm volatile ("cli" : : : "memory");
 
+	// 이전의 인터럽트 On/Off 상태를 리턴한다
 	return old_level;
 }
 
@@ -259,13 +266,12 @@ intr_context (void) {
 	return in_external_intr;
 }
 
-/* During processing of an external interrupt, directs the
-   interrupt handler to yield to a new process just before
-   returning from the interrupt.  May not be called at any other
-   time. */
+/* 외부 인터럽트를 처리하는 동안, 인터럽트 핸들러가
+	인터럽트로부터 복귀하기 직전에 새 프로세스로 양보(yield)하도록 지시한다.
+	이 시점 이외에는 호출될 수 없다. */
 void
 intr_yield_on_return (void) {
-	ASSERT (intr_context ());
+	ASSERT (intr_context ());	// 외부 인터럽트 처리 중일때만 가능
 	yield_on_return = true;
 }
 
@@ -324,29 +330,29 @@ pic_end_of_interrupt (int irq) {
 }
 /* Interrupt handlers. */
 
-/* Handler for all interrupts, faults, and exceptions.  This
-   function is called by the assembly language interrupt stubs in
-   intr-stubs.S.  FRAME describes the interrupt and the
-   interrupted thread's registers. */
+/* 모든 인터럽트, 폴트, 예외에 대한 핸들러.
+   이 함수는 어셈블리 인터럽트 스텁(intr-stubs.S)에서 호출된다.
+   FRAME은 인터럽트와, 인터럽트에 의해 중단된 스레드의 레지스터들을 기술한다. */
 void
 intr_handler (struct intr_frame *frame) {
-	bool external;
+	bool external;		// 외부 인터럽트인지
 	intr_handler_func *handler;
 
-	/* External interrupts are special.
-	   We only handle one at a time (so interrupts must be off)
-	   and they need to be acknowledged on the PIC (see below).
-	   An external interrupt handler cannot sleep. */
+	/* 외부 인터럽트는 특별하다
+	   한번에 하나만 처리해야 한다 (인터럽트 비활성 상태인체 처리해야 한다)
+	   PIC(Programmable Interrupt Controller)에게 EOI로 처리 완료 통보 해야함.
+	   외부 인터럽트 핸들러는 슬립하면 안된다 */
 	external = frame->vec_no >= 0x20 && frame->vec_no < 0x30;
 	if (external) {
-		ASSERT (intr_get_level () == INTR_OFF);
-		ASSERT (!intr_context ());
+		ASSERT (intr_get_level () == INTR_OFF);	// 인터럽트 Off여야함
+		ASSERT (!intr_context ());	// 다른 인터럽트 처리중이었으면 안됨
 
 		in_external_intr = true;
 		yield_on_return = false;
 	}
 
 	/* Invoke the interrupt's handler. */
+	// 등록된 C 핸들러 호출
 	handler = intr_handlers[frame->vec_no];
 	if (handler != NULL)
 		handler (frame);
