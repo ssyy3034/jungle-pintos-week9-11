@@ -272,6 +272,23 @@ cond_init (struct condition *cond) {
    interrupt handler.  This function may be called with
    interrupts disabled, but interrupts will be turned back on if
    we need to sleep. */
+bool
+cond_priority_compare(const struct list_elem *a, 
+                      const struct list_elem *b, 
+                      void *aux UNUSED) {
+    struct semaphore_elem *sa = list_entry(a, struct semaphore_elem, elem);
+    struct semaphore_elem *sb = list_entry(b, struct semaphore_elem, elem);
+    
+    // 각 semaphore의 waiters 리스트에서 첫 번째(유일한) 스레드
+    struct thread *ta = list_entry(
+        list_front(&sa->semaphore.waiters),
+        struct thread, elem);
+    struct thread *tb = list_entry(
+        list_front(&sb->semaphore.waiters),
+        struct thread, elem);
+    
+    return ta->priority > tb->priority;
+}
 void
 cond_wait (struct condition *cond, struct lock *lock) {
 	struct semaphore_elem waiter;
@@ -282,11 +299,13 @@ cond_wait (struct condition *cond, struct lock *lock) {
 	ASSERT (lock_held_by_current_thread (lock));
 
 	sema_init (&waiter.semaphore, 0);
-	list_push_back (&cond->waiters, &waiter.elem);
-	lock_release (lock);
+   list_push_back(&cond->waiters, &waiter.elem);
+   lock_release (lock);
 	sema_down (&waiter.semaphore);
 	lock_acquire (lock);
 }
+
+
 
 /* If any threads are waiting on COND (protected by LOCK), then
    this function signals one of them to wake up from its wait.
@@ -303,9 +322,7 @@ cond_signal (struct condition *cond, struct lock *lock UNUSED) {
 	ASSERT (lock_held_by_current_thread (lock));
 
   if (!list_empty(&cond->waiters)) {
-    /* waiter 내부의 semaphore.waiters의 최고 우선순위 기준으로 선택하려면
-       cond->waiters를 해당 기준 comparator로 정렬하는 구현이 필요.
-       단순화하려면 FIFO 유지 가능. 우선순위 테스트를 통과하려면 정렬 구현 권장. */
+    list_sort(&cond->waiters,cond_priority_compare,NULL);
     struct semaphore_elem *se =
       list_entry(list_pop_front(&cond->waiters), struct semaphore_elem, elem);
     sema_up(&se->semaphore);
