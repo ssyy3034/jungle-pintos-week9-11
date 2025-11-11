@@ -32,6 +32,16 @@
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 
+
+static bool
+more_priority (const struct list_elem *a, //새로 넣을 원소
+			   const struct list_elem *b, //전체 ready-리스트 각 원소
+			   void *aux UNUSED){
+	const struct thread *ta = list_entry(a, struct thread, elem); //a가 속한 thread구조체 포인터 얻음
+	const struct thread *tb = list_entry(b, struct thread, elem);
+	return ta->priority > tb->priority; //True인 자리가 들어갈 자리
+}
+
 /* Initializes semaphore SEMA to VALUE.  A semaphore is a
    nonnegative integer along with two atomic operators for
    manipulating it:
@@ -57,8 +67,24 @@ sema_init (struct semaphore *sema, unsigned value) {
    interrupts disabled, but if it sleeps then the next scheduled
    thread will probably turn interrupts back on. This is
    sema_down function. */
+//    void
+// thread_yield (void) {
+// 	struct thread *curr = thread_current ();
+// 	enum intr_level old_level;
+
+// 	ASSERT (!intr_context ());
+
+// 	old_level = intr_disable ();
+
+// 	if (curr != idle_thread)
+// 		//list_push_back (&ready_list, &curr->elem); /* 기존 */
+// 		list_insert_ordered(&ready_list, &curr->elem, more_priority, NULL); //우선순위 맞는 자리에 삽입
+// 	do_schedule (THREAD_READY);
+
+// 	intr_set_level (old_level);
+// }
 void
-sema_down (struct semaphore *sema) {
+sema_down (struct semaphore *sema) { //현재 스레드 요소 제거
 	enum intr_level old_level;
 
 	ASSERT (sema != NULL);
@@ -66,10 +92,12 @@ sema_down (struct semaphore *sema) {
 
 	old_level = intr_disable ();
 	while (sema->value == 0) {
-		list_push_back (&sema->waiters, &thread_current ()->elem);
+		//list_push_back (&sema->waiters, &thread_current ()->elem);
+		list_insert_ordered(&sema->waiters, &thread_current()->elem, more_priority, NULL);
 		thread_block ();
 	}
 	sema->value--;
+	// 이러고 기존 readylist에 있던 애 뽑아와야하는거아닌지?
 	intr_set_level (old_level);
 }
 
@@ -109,10 +137,23 @@ sema_up (struct semaphore *sema) {
 	ASSERT (sema != NULL);
 
 	old_level = intr_disable ();
-	if (!list_empty (&sema->waiters))
-		thread_unblock (list_entry (list_pop_front (&sema->waiters),
-					struct thread, elem));
+
+	bool flag = false;
+	if (!list_empty (&sema->waiters)){
+		struct thread *t = list_entry (list_pop_front (&sema->waiters),
+					struct thread, elem);
+		thread_unblock (t);
+		//선점 기회
+		if (t->priority > thread_current()->priority){
+			flag = true;
+		}
+	}
+		
 	sema->value++;
+
+	if (flag){
+		thread_yield();
+	}
 	intr_set_level (old_level);
 }
 

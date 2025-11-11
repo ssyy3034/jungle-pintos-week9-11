@@ -226,8 +226,6 @@ thread_create (const char *name, int priority,
 	 	thread_yield();
 
 	intr_set_level(old_level);
-
-	/* 함수가 공유자원일 경우 세마포어 처리 */
 	
 
 	return tid;
