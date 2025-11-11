@@ -112,7 +112,7 @@ void intr_handler (struct intr_frame *args);
 
 /* Returns the current interrupt status. */
 enum intr_level
-intr_get_level (void) {
+intr_get_level (void) { //intr_level: INTR_ON, INTR_OFF
 	uint64_t flags;
 
 	/* Push the flags register on the processor stack, then pop the

@@ -100,10 +100,13 @@ struct list {
    name of the outer structure STRUCT and the member name MEMBER
    of the list element.  See the big comment at the top of the
    file for an example. */
+// LIST_ELEM: 현재 접근하려는 리스트 노드 
+// STRUCT: LIST_ELEM을 멤버로 포함하고있는 부모구조체타입 
+// MEMBER: STRUCT내에서 리스트노드가 선언된 멤버변수이름
 #define list_entry(LIST_ELEM, STRUCT, MEMBER)           \
 	((STRUCT *) ((uint8_t *) &(LIST_ELEM)->next     \
 		- offsetof (STRUCT, MEMBER.next)))
-
+// --> 반환: 부모구조체(STRUCT)의 시작 주소 반환
 void list_init (struct list *);
 
 /* List traversal. */

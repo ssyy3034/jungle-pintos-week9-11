@@ -21,13 +21,13 @@ test_priority_sema (void)
   ASSERT (!thread_mlfqs);
 
   sema_init (&sema, 0);
-  thread_set_priority (PRI_MIN);
+  thread_set_priority (PRI_MIN); //현재 스레드의 우선순위 꼴찌로 만들기
   for (i = 0; i < 10; i++) 
     {
-      int priority = PRI_DEFAULT - (i + 3) % 10 - 1;
+      int priority = PRI_DEFAULT - (i + 3) % 10 - 1; //31 -3 -1 = 27, 
       char name[16];
       snprintf (name, sizeof name, "priority %d", priority);
-      thread_create (name, priority, priority_sema_thread, NULL);
+      thread_create (name, priority, priority_sema_thread, NULL); //공유자원: pri_thread()전역함수
     }
 
   for (i = 0; i < 10; i++) 
@@ -38,8 +38,8 @@ test_priority_sema (void)
 }
 
 static void
-priority_sema_thread (void *aux UNUSED) 
+priority_sema_thread (void *aux UNUSED)
 {
   sema_down (&sema);
-  msg ("Thread %s woke up.", thread_name ());
+  msg ("Thread %s woke up.", thread_name ()); //
 }

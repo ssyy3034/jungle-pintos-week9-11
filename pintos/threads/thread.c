@@ -10,6 +10,7 @@
 #include "threads/palloc.h"
 #include "threads/synch.h"
 #include "threads/vaddr.h"
+#include "list.h"
 #include "intrinsic.h"
 #ifdef USERPROG
 #include "userprog/process.h"
@@ -92,14 +93,26 @@ static uint64_t gdt[3] = { 0, 0x00af9a000000ffff, 0x00cf92000000ffff };
 
    It is not safe to call thread_current() until this function
    finishes. */
+
+/* more_priority(): ready_list에 우선순위순으로 집어넣기 */
+static bool
+more_priority (const struct list_elem *a, //새로 넣을 원소
+			   const struct list_elem *b, //전체 ready-리스트 각 원소
+			   void *aux UNUSED){
+	const struct thread *ta = list_entry(a, struct thread, elem); //a가 속한 thread구조체 포인터 얻음
+	const struct thread *tb = list_entry(b, struct thread, elem);
+	return ta->priority > tb->priority; //True인 자리가 들어갈 자리
+}
+
+
 void
 thread_init (void) {
-	ASSERT (intr_get_level () == INTR_OFF);
+	ASSERT (intr_get_level () == INTR_OFF); //디버깅용 매크로 (INTR_ON -> 인터럽트 켜져있음=> 커널 패닉)
 
 	/* Reload the temporal gdt for the kernel
 	 * This gdt does not include the user context.
 	 * The kernel will rebuild the gdt with user context, in gdt_init (). */
-	struct desc_ptr gdt_ds = {
+	struct desc_ptr gdt_ds = { //gdt: global descriptor table (cpu에서 세그먼트 정의하는 테이)
 		.size = sizeof (gdt) - 1,
 		.address = (uint64_t) gdt
 	};
@@ -130,7 +143,7 @@ thread_start (void) {
 	intr_enable ();
 
 	/* Wait for the idle thread to initialize idle_thread. */
-	sema_down (&idle_started);
+	sema_down (&idle_started); // 메인스레드가 호출함 => 0이라서 자기가 wait_list에 빠지게 됨 > 블락되고 스케쥴러돌아서 아이들스레드를 
 }
 
 /* Called by the timer interrupt handler at each timer tick.
@@ -176,9 +189,9 @@ thread_print_stats (void) {
    The code provided sets the new thread's `priority' member to
    PRIORITY, but no actual priority scheduling is implemented.
    Priority scheduling is the goal of Problem 1-3. */
-tid_t
+tid_t //여기서 알 수 있는 점: "스레드는 실행할 함수 하나를 갖고 있는 실행 단위"
 thread_create (const char *name, int priority,
-		thread_func *function, void *aux) {
+		thread_func *function, void *aux) {  //func: 스레드가 실행하는 함수 / aux: 인자 / 반환값: tid 
 	struct thread *t;
 	tid_t tid;
 
@@ -204,8 +217,18 @@ thread_create (const char *name, int priority,
 	t->tf.cs = SEL_KCSEG;
 	t->tf.eflags = FLAG_IF;
 
+	enum intr_level old_level = intr_disable();	
+	
 	/* Add to run queue. */
 	thread_unblock (t);
+	//바로 선점 기회주기
+	if (t->priority > thread_current()->priority)
+	 	thread_yield();
+
+	intr_set_level(old_level);
+
+	/* 함수가 공유자원일 경우 세마포어 처리 */
+	
 
 	return tid;
 }
@@ -238,11 +261,14 @@ thread_unblock (struct thread *t) {
 
 	ASSERT (is_thread (t));
 
-	old_level = intr_disable ();
+	old_level = intr_disable (); /* 할일 있음. 잠깐 intr 막기 */
 	ASSERT (t->status == THREAD_BLOCKED);
-	list_push_back (&ready_list, &t->elem);
+
+	//기존: list_push_back (&ready_list, &t->elem); //단순 뒤에 삽입
+	list_insert_ordered(&ready_list, &t->elem, more_priority, NULL); //우선순위 맞는 자리에 삽입
 	t->status = THREAD_READY;
-	intr_set_level (old_level);
+
+	intr_set_level (old_level); /* 볼일 끝남. intr 재개 */
 }
 
 /* Returns the name of the running thread. */
@@ -302,16 +328,38 @@ thread_yield (void) {
 	ASSERT (!intr_context ());
 
 	old_level = intr_disable ();
+
 	if (curr != idle_thread)
-		list_push_back (&ready_list, &curr->elem);
+		//list_push_back (&ready_list, &curr->elem); /* 기존 */
+		list_insert_ordered(&ready_list, &curr->elem, more_priority, NULL); //우선순위 맞는 자리에 삽입
 	do_schedule (THREAD_READY);
+
 	intr_set_level (old_level);
 }
 
 /* Sets the current thread's priority to NEW_PRIORITY. */
 void
-thread_set_priority (int new_priority) {
-	thread_current ()->priority = new_priority;
+thread_set_priority (int new_priority) { ///// 현재 스레드의 우선순위를 new_p로 설정, 만약 현스레드가 최고우선순위아니면 즉시 cpu양보
+	enum intr_level old_level = intr_disable (); //인터럽트 뮤트
+	struct thread *curr = thread_current();
+	curr->priority = new_priority;
+	
+	//ready-list 비었으면 할 필요 없음
+	if (list_empty(&ready_list)){
+		intr_set_level(old_level); //이전상태 복원
+		return;
+	}
+	
+	//만약 현 스레드의 우선순위가 1위가 아니면, 즉시 cpu 양보
+	struct thread *next = list_entry(list_front(&ready_list), struct thread, elem);
+	bool flag = false;
+	if (next->priority > curr->priority){
+		flag = true;
+	}
+	//intr_set_level (old_level); //이전상태 복구
+	if (flag)
+		thread_yield();
+	intr_set_level (old_level); 
 }
 
 /* Returns the current thread's priority. */
@@ -363,10 +411,10 @@ idle (void *idle_started_ UNUSED) {
 	idle_thread = thread_current ();
 	sema_up (idle_started);
 
-	for (;;) {
+	for (;;) { //무한루프
 		/* Let someone else run. */
-		intr_disable ();
-		thread_block ();
+		intr_disable (); //인터럽트 끄고
+		thread_block (); //자기자신 block (스케쥴러가 깨워줄때까지 쉼)
 
 		/* Re-enable interrupts and wait for the next one.
 
@@ -380,8 +428,8 @@ idle (void *idle_started_ UNUSED) {
 
 		   See [IA32-v2a] "HLT", [IA32-v2b] "STI", and [IA32-v3a]
 		   7.11.1 "HLT Instruction". */
-		asm volatile ("sti; hlt" : : : "memory");
-	}
+		asm volatile ("sti; hlt" : : : "memory"); //hlt명령 -> cpu잠깐 sleep시킴(전력절약용)
+	} //타이머 인터럽트 등으로 다시 깨면 또 루프 반복
 }
 
 /* Function used as the basis for a kernel thread. */
@@ -421,7 +469,7 @@ next_thread_to_run (void) {
 	if (list_empty (&ready_list))
 		return idle_thread;
 	else
-		return list_entry (list_pop_front (&ready_list), struct thread, elem);
+		return list_entry (list_pop_front (&ready_list), struct thread, elem); /// 우선순위제일높은게 가장앞
 }
 
 /* Use iretq to launch the thread */
@@ -527,9 +575,9 @@ thread_launch (struct thread *th) {
  * It's not safe to call printf() in the schedule(). */
 static void
 do_schedule(int status) {
-	ASSERT (intr_get_level () == INTR_OFF);
-	ASSERT (thread_current()->status == THREAD_RUNNING);
-	while (!list_empty (&destruction_req)) {
+	ASSERT (intr_get_level () == INTR_OFF); //인터럽트 없는 상태
+	ASSERT (thread_current()->status == THREAD_RUNNING); //현재스레드 러닝 상태
+	while (!list_empty (&destruction_req)) { //
 		struct thread *victim =
 			list_entry (list_pop_front (&destruction_req), struct thread, elem);
 		palloc_free_page(victim);

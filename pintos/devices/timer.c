@@ -31,6 +31,17 @@ static void real_time_sleep (int64_t num, int32_t denom);
 
 static struct list sleep_list; /* sleep스레드들 관리 리스트 */
 
+/* 시간 적게남았는지 비교함수_ true나올떄까지 리스트값하나하나비교예정 */ ////timer안에서 하든 해서 header에 쓰지 말기!!
+static bool
+less_wakeup (const struct list_elem *a, //새로 넣을 원소
+             const struct list_elem *b, //전체 sleep-리스트 각 원소
+             void *aux UNUSED) {
+    const struct thread *ta = list_entry(a, struct thread, elem);
+    const struct thread *tb = list_entry(b, struct thread, elem);
+    return ta->wakeup_tick < tb->wakeup_tick;
+}
+
+
 /* Sets up the 8254 Programmable Interval Timer (PIT) to
    interrupt PIT_FREQ times per second, and registers the
    corresponding interrupt. */
@@ -44,8 +55,8 @@ timer_init (void) {
 	outb (0x40, count & 0xff);
 	outb (0x40, count >> 8);
 
-	intr_register_ext (0x20, timer_interrupt, "8254 Timer");
-	list_init(&sleep_list); //# 초기화
+	intr_register_ext (0x20, timer_interrupt, "8254 Timer"); //하드웨어타이머가 매 tick마다 timer_interrupt() 호출
+	list_init(&sleep_list); //## 초기화
 }
 
 /* Calibrates loops_per_tick, used to implement brief delays. */
@@ -116,7 +127,7 @@ timer_sleep (int64_t ticks) { // 호출한 스레드의 실행을 지정된 틱 
     list_insert_ordered(&sleep_list, &cur->elem, less_wakeup, NULL);
 	
 	thread_block(); //현재 스레드 잠재움
-	intr_set_level(old_level); //기억해둔 이전 상태로 다시 복구
+	intr_set_level(old_level); //기억해둔 이전 상태로 다시 복구(인터럽트상태만)
 }
 
 /* Suspends execution for approximately MS milliseconds. */
