@@ -94,6 +94,9 @@ struct thread {
 
 	/* Shared between thread.c and synch.c. */
 	struct list_elem elem;              /* List element. */
+	int wake_time;
+	struct list lock_held_list;
+	int original_priority;
 
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */
@@ -117,12 +120,17 @@ extern bool thread_mlfqs;
 void thread_init (void);
 void thread_start (void);
 
+void thread_sleep(int64_t ticks);
+void thread_awake(int64_t ticks);
+
 void thread_tick (void);
 void thread_print_stats (void);
 
 typedef void thread_func (void *aux);
 tid_t thread_create (const char *name, int priority, thread_func *, void *);
-
+bool thread_priority_less(const struct list_elem *a,
+                          const struct list_elem *b, void *aux);
+void maybe_preempt(void);
 void thread_block (void);
 void thread_unblock (struct thread *);
 

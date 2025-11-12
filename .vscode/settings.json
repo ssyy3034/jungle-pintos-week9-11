@@ -1,0 +1,10 @@
+{
+    "files.associations": {
+        "bit": "c",
+        "functional": "c",
+        "string_view": "c",
+        "random": "c",
+        "limits": "c",
+        "numeric": "c"
+    }
+}
