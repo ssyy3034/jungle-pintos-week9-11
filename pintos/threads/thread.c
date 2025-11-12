@@ -258,10 +258,8 @@ thread_unblock (struct thread *t) {
     list_insert_ordered(&ready_list,&t->elem,thread_priority_less,NULL);
     t->status = THREAD_READY;
 
-    // 💡 추가된 선점 로직
-    maybe_preempt(); 
-
     intr_set_level (old_level);
+	maybe_preempt(); 
 }
 
 /* Returns the name of the running thread. */
@@ -363,6 +361,21 @@ void thread_awake (int64_t ticks) {
     if (intr_context()) intr_yield_on_return();
     else thread_yield();
   }
+}
+void thread_priority_changed(struct thread *t) {
+  enum intr_level old = intr_disable();
+
+  if (t->status == THREAD_READY) {
+    /* READY 큐에서 위치 재조정 */
+    list_remove(&t->elem);
+    list_insert_ordered(&ready_list, &t->elem, thread_priority_less, NULL);
+  }
+
+  intr_set_level(old);
+
+  /* 현재 실행 중인 스레드가 낮아졌다면 선점 */
+  if (t == thread_current())
+    maybe_preempt();
 }
 
 
@@ -490,6 +503,8 @@ init_thread (struct thread *t, const char *name, int priority) {
 	t->tf.rsp = (uint64_t) t + PGSIZE - sizeof (void *);
 	t->priority = priority;
 	t->magic = THREAD_MAGIC;
+	t->waiting_lock = NULL;
+
 
 	t->original_priority = priority;
     list_init(&t->lock_held_list);
