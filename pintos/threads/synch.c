@@ -185,17 +185,12 @@ lock_init (struct lock *lock) {
    we need to sleep. */
 void
 lock_acquire (struct lock *lock) {
-   /* ... ASSERTs ... */
+   ASSERT (lock != NULL);
+	ASSERT (!intr_context ());
+	ASSERT (!lock_held_by_current_thread (lock));
 
-   // ✅ 수정: 기부는 "더 높을 때만" 수행합니다.
    if (lock->holder != NULL && lock->holder->priority < thread_current()->priority) {
-        
-        // 1. 홀더의 우선순위를 갱신합니다.
-        lock->holder->priority = thread_current()->priority;
-        
-        // 2. (참고: donate-chain을 위해서는
-        //    여기서 홀더가 기다리는 다른 락으로 기부를 "전파"하는
-        //    재귀적(recursive) 갱신 로직이 추가로 필요합니다.)
+        lock->holder->priority = thread_current()->priority;       
    }
 
    sema_down (&lock->semaphore);
@@ -229,8 +224,6 @@ lock_try_acquire (struct lock *lock) {
    An interrupt handler cannot acquire a lock, so it does not
    make sense to try to release a lock within an interrupt
    handler. */
-/* 이 함수는 thread.c 또는 synch.c에 있어야 합니다. */
-/* (재귀가 아닌 반복문 버전) */
 void thread_update_priority(struct thread *t) {
     enum intr_level old_level = intr_disable(); 
 

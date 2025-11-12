@@ -94,7 +94,9 @@ struct thread {
 
 	/* Shared between thread.c and synch.c. */
 	struct list_elem elem;              /* List element. */
-	int wake_time; //r
+	int wake_time;
+	struct list lock_held_list;
+	int original_priority;
 
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */
