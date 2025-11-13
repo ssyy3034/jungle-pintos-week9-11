@@ -21,7 +21,7 @@
 #define PGMASK BITMASK(PGSHIFT, PGBITS) /* Page offset bits (0:12). */
 
 /* Offset within a page. */
-#define pg_ofs(va) ((uint64_t)(va) & PGMASK)
+#define pg_ofs(va) ((uint64_t)(va)&PGMASK)
 
 #define pg_no(va) ((uint64_t)(va) >> PGBITS)
 
@@ -51,9 +51,9 @@
 /* Returns physical address at which kernel virtual address VADDR
  * is mapped. */
 #define vtop(vaddr)                                                                                                    \
-    ({                                                                                                                 \
-        ASSERT(is_kernel_vaddr(vaddr));                                                                                \
-        ((uint64_t)(vaddr) - (uint64_t)KERN_BASE);                                                                     \
-    })
+  ({                                                                                                                   \
+    ASSERT(is_kernel_vaddr(vaddr));                                                                                    \
+    ((uint64_t)(vaddr) - (uint64_t)KERN_BASE);                                                                         \
+  })
 
 #endif /* threads/vaddr.h */

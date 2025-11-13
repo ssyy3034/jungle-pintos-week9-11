@@ -5,11 +5,9 @@
 #include <stdio.h>
 #include "tests/lib.h"
 
-int
-main (void) 
-{
+int main(void) {
   test_name = "child-simple";
 
-  msg ("run");
+  msg("run");
   return 81;
 }
