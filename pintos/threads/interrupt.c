@@ -61,7 +61,7 @@ static struct desc_ptr idt_desc = {.size = sizeof(idt) - 1, .address = (uint64_t
     ASSERT((d) >= 0 && (d) <= 3);                                                                                      \
     ASSERT((t) >= 0 && (t) <= 15);                                                                                     \
     *(g) = (struct gate){                                                                                              \
-        .off_15_0 = (uint64_t)(function) & 0xffff,                                                                     \
+        .off_15_0 = (uint64_t)(function)&0xffff,                                                                       \
         .ss = SEL_KCSEG,                                                                                               \
         .ist = 0,                                                                                                      \
         .rsv1 = 0,                                                                                                     \
